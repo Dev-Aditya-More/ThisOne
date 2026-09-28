@@ -13,5 +13,6 @@ data class SavedMeme(
     val bottomText: String,
     val matchReason: String,
     val situation: String,          // the user's original description
+    val vibeScore: Int = 10,
     val savedAt: Long = System.currentTimeMillis(),
 )

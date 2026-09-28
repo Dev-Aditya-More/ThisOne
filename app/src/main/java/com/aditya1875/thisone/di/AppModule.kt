@@ -6,9 +6,11 @@ package com.aditya1875.thisone.di
 import androidx.room.Room
 import com.aditya1875.thisone.BuildConfig
 import com.aditya1875.thisone.data.local.MemeDatabase
-import com.aditya1875.thisone.data.remote.AnthropicApi
+import com.aditya1875.thisone.data.remote.GeminiApi
 import com.aditya1875.thisone.data.remote.ImgflipApi
 import com.aditya1875.thisone.data.repository.MemeRepository
+import com.aditya1875.thisone.data.repository.SelectedMemeStore
+import com.aditya1875.thisone.ui.detail.MemeDetailViewModel
 import com.aditya1875.thisone.ui.home.HomeViewModel
 import com.aditya1875.thisone.ui.saved.SavedViewModel
 import com.google.gson.Gson
@@ -40,11 +42,11 @@ val appModule = module {
             .build()
     }
 
-    // OkHttp for Anthropic (adds API key header)
-    single(qualifier = org.koin.core.qualifier.named("anthropic")) {
+    // OkHttp for Gemini (adds API key header)
+    single(qualifier = org.koin.core.qualifier.named("gemini")) {
         val authInterceptor = Interceptor { chain ->
             val request = chain.request().newBuilder()
-                .addHeader("x-api-key", BuildConfig.ANTHROPIC_API_KEY)
+                .addHeader("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
                 .build()
             chain.proceed(request)
         }
@@ -64,13 +66,13 @@ val appModule = module {
             .create(ImgflipApi::class.java)
     }
 
-    single<AnthropicApi> {
+    single<GeminiApi> {
         Retrofit.Builder()
-            .baseUrl("https://api.anthropic.com/")
-            .client(get(qualifier = org.koin.core.qualifier.named("anthropic")))
+            .baseUrl("https://generativelanguage.googleapis.com/")
+            .client(get(qualifier = org.koin.core.qualifier.named("gemini")))
             .addConverterFactory(GsonConverterFactory.create(get()))
             .build()
-            .create(AnthropicApi::class.java)
+            .create(GeminiApi::class.java)
     }
 
     // ── Room ───────────────────────────────────────────────────────────────
@@ -79,7 +81,10 @@ val appModule = module {
             androidContext(),
             MemeDatabase::class.java,
             "thisone_db",
-        ).build()
+        )
+            // MVP: no migrations written yet, safe to wipe local cache on schema bumps.
+            .fallbackToDestructiveMigration(dropAllTables = true)
+            .build()
     }
 
     single { get<MemeDatabase>().savedMemeDao() }
@@ -88,13 +93,17 @@ val appModule = module {
     single {
         MemeRepository(
             imgflipApi = get(),
-            anthropicApi = get(),
+            geminiApi = get(),
             savedMemeDao = get(),
             gson = get(),
         )
     }
 
+    // ── Cross-screen state ────────────────────────────────────────────────
+    single { SelectedMemeStore() }
+
     // ── ViewModels ─────────────────────────────────────────────────────────
-    viewModel { HomeViewModel(get())}
-    viewModel { SavedViewModel(repository = get()) }
+    viewModel { HomeViewModel(repository = get(), selectedMemeStore = get()) }
+    viewModel { SavedViewModel(repository = get(), selectedMemeStore = get()) }
+    viewModel { MemeDetailViewModel(repository = get(), selectedMemeStore = get()) }
 }

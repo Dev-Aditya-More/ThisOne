@@ -19,6 +19,9 @@ interface SavedMemeDao {
     @Delete
     suspend fun delete(meme: SavedMeme)
 
+    @Query("DELETE FROM saved_memes WHERE templateId = :templateId")
+    suspend fun deleteByTemplateId(templateId: String)
+
     @Query("SELECT EXISTS(SELECT 1 FROM saved_memes WHERE templateId = :id LIMIT 1)")
     suspend fun isSaved(id: String): Boolean
 }

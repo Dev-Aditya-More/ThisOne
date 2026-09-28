@@ -7,9 +7,11 @@ import com.aditya1875.thisone.data.local.SavedMemeDao
 import com.aditya1875.thisone.data.model.MemeResult
 import com.aditya1875.thisone.data.model.MemeTemplate
 import com.aditya1875.thisone.data.model.SavedMeme
-import com.aditya1875.thisone.data.remote.AnthropicApi
-import com.aditya1875.thisone.data.remote.AnthropicMessage
-import com.aditya1875.thisone.data.remote.AnthropicRequest
+import com.aditya1875.thisone.data.remote.GeminiApi
+import com.aditya1875.thisone.data.remote.GeminiContent
+import com.aditya1875.thisone.data.remote.GeminiPart
+import com.aditya1875.thisone.data.remote.GeminiRequest
+import com.aditya1875.thisone.data.remote.GeminiSystemInstruction
 import com.aditya1875.thisone.data.remote.ImgflipApi
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -17,7 +19,7 @@ import kotlinx.coroutines.flow.Flow
 
 class MemeRepository(
     private val imgflipApi: ImgflipApi,
-    private val anthropicApi: AnthropicApi,
+    private val geminiApi: GeminiApi,
     private val savedMemeDao: SavedMemeDao,
     private val gson: Gson,
 ) {
@@ -35,7 +37,7 @@ class MemeRepository(
     // ── AI matching ────────────────────────────────────────────────────────
 
     /**
-     * Given a [situation] string, asks Claude to pick the 3 best matching
+     * Given a [situation] string, asks Gemini to pick the 3 best matching
      * meme templates from [templates] and write captions for each.
      *
      * Returns a list of [MemeResult] ordered by vibe score (best first).
@@ -62,17 +64,18 @@ class MemeRepository(
                 "templateId": "<id from list>",
                 "topText": "<caption line 1>",
                 "bottomText": "<caption line 2, empty string if single box>",
-                "matchReason": "<1 sentence why this meme fits — witty, max 10 words>",
+                "matchReason": "<1 sentence why this meme fits, witty, max 10 words>",
                 "vibeScore": <integer 1-10>
               }
             ]
-            
+
             Rules:
             - Captions must feel natural and funny, not forced
             - Match the emotional subtext (sarcasm, joy, frustration, etc.)
             - vibeScore 10 = perfect match, 1 = loose fit
             - Keep topText and bottomText under 60 characters each
             - If a template has boxCount 1, set bottomText to ""
+            - Never use an em dash (—) anywhere in your text. Use a comma, period, or regular hyphen instead
         """.trimIndent()
 
         val userMessage = """
@@ -82,16 +85,18 @@ class MemeRepository(
             $templateSummary
         """.trimIndent()
 
-        val response = anthropicApi.createMessage(
-            AnthropicRequest(
-                system = systemPrompt,
-                messages = listOf(AnthropicMessage(role = "user", content = userMessage)),
+        val response = geminiApi.generateContent(
+            request = GeminiRequest(
+                systemInstruction = GeminiSystemInstruction(parts = listOf(GeminiPart(text = systemPrompt))),
+                contents = listOf(GeminiContent(role = "user", parts = listOf(GeminiPart(text = userMessage)))),
             )
         )
 
-        val rawJson = response.content.firstOrNull()?.text ?: return emptyList()
+        val rawJson = response.candidates.firstOrNull()
+            ?.content?.parts?.firstOrNull()?.text
+            ?: return emptyList()
 
-        // Parse Claude's JSON response into result objects
+        // Parse Gemini's JSON response into result objects
         return parseResults(rawJson, templates)
     }
 
@@ -100,8 +105,12 @@ class MemeRepository(
         templates: List<MemeTemplate>,
     ): List<MemeResult> {
         return try {
+            val cleanJson = rawJson.trim()
+                .removePrefix("```json").removePrefix("```")
+                .removeSuffix("```")
+                .trim()
             val type = object : TypeToken<List<MatchedMemeJson>>() {}.type
-            val matched: List<MatchedMemeJson> = gson.fromJson(rawJson.trim(), type)
+            val matched: List<MatchedMemeJson> = gson.fromJson(cleanJson, type)
 
             val templateMap = templates.associateBy { it.id }
 
@@ -110,9 +119,9 @@ class MemeRepository(
                     val template = templateMap[item.templateId] ?: return@mapNotNull null
                     MemeResult(
                         template     = template,
-                        topText      = item.topText,
-                        bottomText   = item.bottomText,
-                        matchReason  = item.matchReason,
+                        topText      = item.topText.stripEmDash(),
+                        bottomText   = item.bottomText.stripEmDash(),
+                        matchReason  = item.matchReason.stripEmDash(),
                         vibeScore    = item.vibeScore.coerceIn(1, 10),
                     )
                 }
@@ -122,7 +131,10 @@ class MemeRepository(
         }
     }
 
-    // Internal JSON shape matching Claude's output
+    /** Gemini tends to sprinkle in em dashes even when told not to, swap them for a plain comma. */
+    private fun String.stripEmDash(): String = replace(" — ", ", ").replace("—", "-")
+
+    // Internal JSON shape matching Gemini's output
     private data class MatchedMemeJson(
         val templateId: String,
         val topText: String,
@@ -145,9 +157,12 @@ class MemeRepository(
                 bottomText   = result.bottomText,
                 matchReason  = result.matchReason,
                 situation    = situation,
+                vibeScore    = result.vibeScore,
             )
         )
     }
 
     suspend fun deleteSaved(meme: SavedMeme) = savedMemeDao.delete(meme)
+
+    suspend fun deleteSavedByTemplateId(templateId: String) = savedMemeDao.deleteByTemplateId(templateId)
 }

@@ -25,8 +25,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField(
-            "String", "ANTHROPIC_API_KEY",
-            "\"${localProperties["ANTHROPIC_API_KEY"] ?: ""}\""
+            "String", "GEMINI_API_KEY",
+            "\"${localProperties["GEMINI_API_KEY"] ?: ""}\""
         )
     }
 

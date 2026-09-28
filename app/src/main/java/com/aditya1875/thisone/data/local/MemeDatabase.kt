@@ -9,7 +9,7 @@ import com.aditya1875.thisone.data.model.SavedMeme
 
 @Database(
     entities = [SavedMeme::class],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class MemeDatabase : RoomDatabase() {

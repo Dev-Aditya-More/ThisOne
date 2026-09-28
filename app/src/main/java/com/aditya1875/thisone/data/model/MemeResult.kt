@@ -2,7 +2,7 @@ package com.aditya1875.thisone.data.model
 
 /**
  * One AI-matched meme result returned to the UI.
- * Claude picks the template and writes the caption lines.
+ * Gemini picks the template and writes the caption lines.
  */
 data class MemeResult(
     val template: MemeTemplate,
